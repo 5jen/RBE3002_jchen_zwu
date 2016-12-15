@@ -11,39 +11,48 @@ from geometry_msgs.msg import Pose
 from tf.transformations import euler_from_quaternion
 
 
-# Add additional imports for each of the message types used
 
-def beAlertToCheck(event):
-    
-    pubinit.publish(pose)
-    print "checkpoint"
-    print "spin and check"
-    
-    
+# Add additional imports for each of the message types used
 
 
 # NavToPose
 def navToPose(goal):
-    global timeToCheck
-    timeToCheck = False
-    valid = True
-    
-    
-    buff = goal.cells[1]
-    goal.cells.remove(buff)
-    navToPoint(buff)
-    pubinit.publish(pose)
-    if(goal.cells.__len__() == 0):
-	valid = False
+    global resolution
+    a = 0
+    print "navToPose"
+    if(goal.cells.__len__() == 1):
+      publishTwist(0,0)
+      rospy.sleep(20)
+    else:
+      init = goal.cells[0]
+      buff = goal.cells[1]
+      
+      
+      if((math.sqrt(math.pow((buff.x-init.x),2)+math.pow((buff.y-init.y),2)) < 2*resolution)):
+	goal.cells.remove(buff)
+	buff = goal.cells[1]
+	print "skip the small one"
+	a = a+1
+	
+      while(math.sqrt(math.pow((buff.x-init.x),2)+math.pow((buff.y-init.y),2)) < 5*resolution and goal.cells.__len__() != 0):
+	goal.cells.remove(buff)
+	buff = goal.cells[1]
+	a = a+1
+	print "skip a point"
+      print a
+      
+      navToPoint(buff)
+      pubinit.publish(pose)
 	
 	  #rotate(179)
 	  #rotate(179)
 	
     
-    timeToCheck = True
+    
       
 #drive to a goal subscribed as /move_base_simple/goal
 def navToPoint(goal):
+    print "navToPoint"
     if(goal != -1):
 	while(not transdone):
 	    rospy.sleep(0.15)
@@ -60,20 +69,23 @@ def navToPoint(goal):
 	    rospy.sleep(0.15)
 	    
 	    if(math.degrees(firstAngle-currentz)>0):
-		    publishTwist(0,0.5)
+		    publishTwist(0,0.2)
 		    
 	    else:
-		    publishTwist(0,-0.5)
+		    publishTwist(0,-0.2)
 		    
 	    currentz = pose.orientation.z
 
 	
 	
 	dis = math.sqrt(math.pow((goalx-currentx),2)+math.pow((goaly-currenty),2))
-	if (dis<1):
+	if (dis<0.5):
 	    driveStraight(0.3,dis)
 	else :
-	    driveStraight(0.3,1)
+	    driveStraight(0.3,0.5)
+	    rospy.sleep(0.15)
+	    rotate(179)
+	    rotate(179)
 	#while ((abs(math.degrees(goalz-currentz))) >= 1):
 	#    rospy.sleep(0.15)
 	#    
@@ -85,7 +97,7 @@ def navToPoint(goal):
 	#	    
 	#    currentz = pose.orientation.z
 	
-	print "done"
+	print "done point"
 	return True
     return False
 
@@ -143,16 +155,15 @@ def driveStraight(speed, distance):
     	if(currentDistance >= distance):
     		atTarget = True
     		publishTwist(0,0)
-    		print "stop!"
-    	elif(currentDistance >= (distance-0.6) and currentDistance < distance):
+    		print "stop forward"
+    		pass
+    	elif(currentDistance <= 0.2 ):
+		ac = currentDistance/0.2*speed+0.1
+		publishTwist(ac,0)    	
+    	elif(currentDistance >= (distance-0.2) and currentDistance < distance):
 		dis = distance-currentDistance
 		de = dis/0.2*speed+0.05
-		publishTwist(de,0)
-		
-	elif(currentDistance <= 0.6 and currentDistance>0.2):
-		ac = currentDistance/0.2*speed+0.1
-		publishTwist(ac,0)
-		
+		publishTwist(de,0)	
     	else:
     		publishTwist(speed,0)
     		rospy.sleep(0.15)   
@@ -160,7 +171,7 @@ def driveStraight(speed, distance):
     
 #Accepts an angle and makes the robot rotate around it.
 def rotate(angle):
-    print "rotate"
+    print "Scanning"
     global transdone
     while(not transdone):
 	rospy.sleep(0.15)
@@ -182,15 +193,15 @@ def rotate(angle):
     error = err(goal,math.degrees(pose.orientation.z),angle)
     sign = isPositive(currentZ)
     
-    while ((abs(error) >= 2)):
+    while ((abs(error) >= 10)):
 	rospy.sleep(0.15)
 	shabi = math.degrees(pose.orientation.z)
 	dashabi = error
 	if(error>0):
-		publishTwist(0,1)
+		publishTwist(0,0.3)
 		
 	else:
-		publishTwist(0,-1)
+		publishTwist(0,-0.3)
 		  
 	error = err(goal,math.degrees(pose.orientation.z),angle)
 
@@ -243,8 +254,13 @@ def readBumper(msg):
     if (msg.state == 1):
         hitBump = True        
         print"Bumper pressed!"
-        executeTrajectory()
-
+        publishTwist(0,0)
+        
+        publishTwist(-0.3,0)
+        rospy.sleep(0.3)
+        rotate(179)
+	rotate(179)
+	pubinit.publish(pose)
 
 # (Optional) If you need something to happen repeatedly at a fixed interval, write the code here.
 # Start the timer with the following line of code: 
@@ -277,6 +293,25 @@ def timerCallback(event):
     
     transdone = True
     
+# reads in global map
+def mapCallBack(data):
+    global mapData
+    global width
+    global height
+    global mapgrid
+    global resolution
+    global offsetX
+    global offsetY
+    mapgrid = data
+    resolution = data.info.resolution
+    mapData = data.data
+    width = data.info.width
+    height = data.info.height
+    offsetX = data.info.origin.position.x
+    offsetY = data.info.origin.position.y
+    print "mapCallBack"
+    
+
 
 def publishTwist(linearVelocity,angularVelocity):
     global pub 
@@ -285,7 +320,15 @@ def publishTwist(linearVelocity,angularVelocity):
     msg.angular.z = angularVelocity
     pub.publish(msg)
    
-
+def checkAround():
+    rotate(179)
+    rotate(179)
+    goal = Pose()
+    
+    goal.position.x = pose.position.x+5
+    goal.position.y = pose.position.y+5
+    goal.position.z = 0
+    pubgoal.publish(goal)
 
 
 # This is the program's main function
@@ -312,9 +355,12 @@ if __name__ == '__main__':
     # Replace the elipses '...' in the following lines to set up the publishers and subscribers the lab requires
     pub = rospy.Publisher('/cmd_vel_mux/input/teleop', Twist, None,queue_size=10) # Publisher for commanding robot motion
     pubinit = rospy.Publisher('move_base_simple/init', Pose, queue_size = 1)
-    #bumper_sub = rospy.Subscriber('/mobile_base/events/bumper', BumperEvent, readBumper, queue_size=1) # Callback function to handle bumper events
+    
+    pubgoal = rospy.Publisher('move_base_simple/goal1', Pose, queue_size = 1)
+    
+    bumper_sub = rospy.Subscriber('/mobile_base/events/bumper', BumperEvent, readBumper, queue_size=1) # Callback function to handle bumper events
     goal_sub = rospy.Subscriber('/waypoints',GridCells,navToPose,queue_size=1)
-   
+    localsub = rospy.Subscriber("/map", OccupancyGrid, mapCallBack)
     # Use this object to get the robot's Odometry 
     odom_list = tf.TransformListener()
     
@@ -333,7 +379,7 @@ if __name__ == '__main__':
     rospy.sleep(5)
     pubinit.publish(pose)
     odom_list = tf.TransformListener()
-    
+    checkAround()
     # Make the robot do stuff...
     
     #straight
